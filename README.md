@@ -1,4 +1,4 @@
-# ssd1306-128x32-esp-idf
+# SSD1306 128x32px C++ Component ESP-IDF
 Library for interfacing with a 128x32 SSD1306 using the I2C protocol through ESP-IDF.
 
 # Primary Sources
