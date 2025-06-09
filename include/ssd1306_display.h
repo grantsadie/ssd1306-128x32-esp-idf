@@ -23,7 +23,7 @@ private:
     esp_err_t write_data(const uint8_t* data, size_t len);
     
     void set_pixel(int16_t x, int16_t y, bool color);
-    void draw_char(int16_t x, int16_t y, unsigned char c, bool color);
+    void draw_char(int16_t x, int16_t y, unsigned char c, bool color, uint8_t size = 1);
 
 public:
     static constexpr uint8_t DEFAULT_ADDRESS = 0x3C;
@@ -44,8 +44,8 @@ public:
     void turn_off();
     
     // misc drawing methods
-    void draw_string(int16_t x, int16_t y, const char* text, bool color = true);
-    void draw_string(int16_t x, int16_t y, const std::string& text, bool color = true);
+    void draw_string(int16_t x, int16_t y, const char* text, bool color = true, uint8_t size = 1);
+    void draw_string(int16_t x, int16_t y, const std::string& text, bool color = true, uint8_t size = 1);
     void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, bool color = true);
     void draw_rectangle(int16_t x, int16_t y, int16_t width, int16_t height, bool color = true);
     void fill_rectangle(int16_t x, int16_t y, int16_t width, int16_t height, bool color = true);

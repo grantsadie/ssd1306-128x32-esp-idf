@@ -688,22 +688,39 @@ void SSD1306Display::set_pixel(int16_t x, int16_t y, bool color) {
     }
 }
 
-void SSD1306Display::draw_char(int16_t x, int16_t y, unsigned char c, bool color) {
+void SSD1306Display::draw_char(int16_t x, int16_t y, unsigned char c, bool color, uint8_t size) {
     if (c < 32 || c > 127) return; // only printable ASCII
     
     const uint8_t* char_data = font_5x8[c - 32];
     
+    // for (int col = 0; col < 5; col++) {
+    //     uint8_t column = char_data[col];
+    //     for (int row = 0; row < 8; row++) {
+    //         if (column & (1 << row)) {
+    //             set_pixel(x + col, y + row, color);
+    //         }
+    //     }
+    // }
+
     for (int col = 0; col < 5; col++) {
         uint8_t column = char_data[col];
-        for (int row = 0; row < 8; row++) {
-            if (column & (1 << row)) {
-                set_pixel(x + col, y + row, color);
+        for (int row = 0; row < 8; row++, column >>=1) {
+            if (column  & 1) {
+                if (size == 1) {
+                    set_pixel(x + col, y + row, color);
+                } else {
+                    // draw larger character
+                    fill_rectangle(x + col * size, y + row * size, size, size, color);
+                }
             }
+            // if (column & (1 << row)) {
+            //     set_pixel(x + col, y + row, color);
+            // }
         }
     }
 }
 
-void SSD1306Display::draw_string(int16_t x, int16_t y, const char* text, bool color) {
+void SSD1306Display::draw_string(int16_t x, int16_t y, const char* text, bool color, uint8_t size) {
     int16_t cursor_x = x;
     
     while (*text) {
@@ -711,14 +728,14 @@ void SSD1306Display::draw_string(int16_t x, int16_t y, const char* text, bool co
             cursor_x = x;
             y += 8; // move to next line, guess 8 is fine for now. Work with 4 rows
         } else {
-            draw_char(cursor_x, y, *text, color);
-            cursor_x += 6; // character width (default 5) + spacing (1)
+            draw_char(cursor_x, y, *text, color, size);
+            cursor_x += 6 * size; // character width (default 5) + spacing (1)
         }
         text++;
     }
 }
 
-void SSD1306Display::draw_string(int16_t x, int16_t y, const std::string& text, bool color) {
+void SSD1306Display::draw_string(int16_t x, int16_t y, const std::string& text, bool color, uint8_t size) {
     draw_string(x, y, text.c_str(), color);
 }
 

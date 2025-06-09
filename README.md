@@ -16,3 +16,4 @@ https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/periph
 [ ] Add screen flipping  
 [ ] Add scrolling  
 [x] Upgrade to "i2c_master.h" from "i2c.h"  
+[x] Add font size selection
