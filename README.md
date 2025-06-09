@@ -9,7 +9,7 @@ Inter-Integrated Circuit (I2C) ESP-IDF Guide
 https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
 
 # TODO
-[ ] Add SPI support
-[ ] Add screen flipping
-[ ] Add scrolling
-[x] Upgrade to "i2c_master.h" from "i2c.h"
+[ ] Add SPI support  
+[ ] Add screen flipping  
+[ ] Add scrolling  
+[x] Upgrade to "i2c_master.h" from "i2c.h"  
