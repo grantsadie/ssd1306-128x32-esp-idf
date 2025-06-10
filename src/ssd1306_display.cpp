@@ -691,7 +691,8 @@ void SSD1306Display::set_pixel(int16_t x, int16_t y, bool color) {
 void SSD1306Display::draw_char(int16_t x, int16_t y, unsigned char c, bool color, uint8_t size) {
     if (c < 32 || c > 127) return; // only printable ASCII
     
-    const uint8_t* char_data = font_5x8[c - 32];
+    const uint8_t* char_data = (const unsigned char *)(&font[c * 5]);
+    // const uint8_t* char_data = font_5x8[c - 32];
     
     // for (int col = 0; col < 5; col++) {
     //     uint8_t column = char_data[col];

@@ -9,7 +9,7 @@ Inter-Integrated Circuit (I2C) ESP-IDF Guide
 https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
 
 # Sample Images
-![ESP32 Setup](./images/IMG_4961.JPEG)  
+![ESP32 Setup](./images/IMG_4969.JPEG)  
 
 # TODO
 [ ] Add SPI support  
