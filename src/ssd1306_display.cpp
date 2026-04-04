@@ -3,6 +3,7 @@
 #include "driver/rtc_io.h"
 #include <cstring>
 #include <algorithm>
+#include <memory>
 
 #include "esp_mac.h"
 
@@ -126,13 +127,21 @@ static const char* TAG = "SSD1306";
 };
 
 SSD1306Display::SSD1306Display(gpio_num_t sda_pin, gpio_num_t scl_pin, 
+                               uint8_t width, uint8_t height,
                                i2c_port_t port, uint8_t address)
     : _i2c_port(port), _device_address(address), _sda_pin(sda_pin), 
-      _scl_pin(scl_pin), _initialized(false) {
-    memset(_display_buffer, 0, sizeof(_display_buffer));
+      _scl_pin(scl_pin), _initialized(false), _width(width), _height(height) {
+    // Calculate buffer size: width * height / 8 (since each bit represents a pixel)
+    _buffer_size = (width * height) / 8;
+    _display_buffer = new uint8_t[_buffer_size];
+    memset(_display_buffer, 0, _buffer_size);
 }
 
 SSD1306Display::~SSD1306Display() {
+    if (_display_buffer) {
+        delete[] _display_buffer;
+        _display_buffer = nullptr;
+    }
     if (initialized()) {
         // i2c_driver_delete(i2c_port);
     }
@@ -140,6 +149,9 @@ SSD1306Display::~SSD1306Display() {
 
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
 esp_err_t SSD1306Display::initialize() {
+    ESP_LOGI(TAG, "Initializing SSD1306 display...");
+    ESP_LOGI(TAG, "SDA Pin: %d, SCL Pin: %d, Address: 0x%02X", _sda_pin, _scl_pin, _device_address);
+    ESP_LOGI(TAG, "Display Size: %dx%d, Buffer Size: %d bytes", _width, _height, _buffer_size);
 
     // if just woken from deep sleep, rtc pins may be held in reset from rtc_gpio_isolate
     rtc_gpio_hold_dis(_sda_pin); // disable hold on GPIOs
@@ -157,33 +169,48 @@ esp_err_t SSD1306Display::initialize() {
         .allow_pd = 0 //  before sleep, will backup the I2C register which will be restored
     };
 
+    ESP_LOGI(TAG, "Creating I2C master bus...");
     i2c_master_bus_handle_t i2c_handle;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_config, &i2c_handle));
+    esp_err_t ret = i2c_new_master_bus(&i2c_config, &i2c_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
+    ESP_LOGI(TAG, "Adding I2C device...");
     i2c_device_config_t dev_cfg = {};
     dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     dev_cfg.device_address = _device_address;
     dev_cfg.scl_speed_hz = 400000;
 
     i2c_master_dev_handle_t dev_handle;
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_handle, &dev_cfg, &dev_handle));
+    ret = i2c_master_bus_add_device(i2c_handle, &dev_cfg, &dev_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
+        i2c_del_master_bus(i2c_handle);
+        return ret;
+    }
 
     // store the device handle for later use
     _i2c_bus_handle = i2c_handle;
     _i2c_device_handle = dev_handle;
 
-    // init SSD1306 display. these parameters were fine tuned by me, the ones below were copied and pasted from other libraries for testing
+    ESP_LOGI(TAG, "Sending SSD1306 initialization commands...");
+    // init SSD1306 display. Parameters adjusted based on display size
+    uint8_t multiplex_ratio = _height - 1; // 0x1F for 32px, 0x3F for 64px
+    uint8_t com_pins_config = (_height == 64) ? 0x12 : 0x02; // 0x12 for 128x64, 0x02 for 128x32
+    
     uint8_t init_commands[] = {
         0x00,
         0xAE, // Turn display off
-        0xA8, 0x1F, // Set multiplex ratio (0x1F for 128x32). 0x3F for 128x64
+        0xA8, multiplex_ratio, // Set multiplex ratio (height-1)
         0xD3, 0x00, // Set display offset to 0
         0x40, // Set display start line to 0
         // to flip, need to flip segment re-map to 0xA0 - 0xA1 and COM output scan dir to 0xC0 - 0xC8
         0xA1, // Set segment re-map
         0xC8,  // 0xC0, Set COM output scan direction. This sets the display to scan from bottom to top. Need to invers this if using flipped display
         0xD5, 0x80, // Freq should be fine at 0x80. Investigate if flickering / ghosting occurs
-        0xDA, 0x02, // Set COM pins hardware configuration (0x02 for 128x32, 0x12 for 128x64 i think)
+        0xDA, com_pins_config, // Set COM pins hardware configuration
         // 0x00, 0x10,
         0x81, 0x8F, // Set contrast control (0x3F for max contrast)
         0xA4, // Disable entire display on
@@ -197,14 +224,20 @@ esp_err_t SSD1306Display::initialize() {
         0xAF
     };
 
-    esp_err_t res;
-    res = i2c_master_transmit(dev_handle, init_commands, sizeof(init_commands), -1);
+    esp_err_t res = i2c_master_transmit(dev_handle, init_commands, sizeof(init_commands), -1);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send initialization commands: %s", esp_err_to_name(res));
+        i2c_master_bus_rm_device(dev_handle);
+        i2c_del_master_bus(i2c_handle);
+        return res;
+    }
 
+    ESP_LOGI(TAG, "SSD1306 initialization completed successfully!");
     _initialized = true;
     clear();
     display();
 
-    return res;
+    return ESP_OK;
 
 }
 
@@ -250,7 +283,7 @@ esp_err_t SSD1306Display::write_data(const uint8_t* data, size_t len) {
 }
 
 void SSD1306Display::clear() {
-    memset(_display_buffer, 0, sizeof(_display_buffer));
+    memset(_display_buffer, 0, _buffer_size);
 }
 
 void SSD1306Display::display() {
@@ -259,15 +292,15 @@ void SSD1306Display::display() {
     // set column address range
     write_command(0x21); // set column address
     write_command(0x00); // column start address
-    write_command(0x7F); // column end address
+    write_command(_width - 1); // column end address
     
     // set page address range
     write_command(0x22); // set page address
     write_command(0x00); // page start address
-    write_command(0x03); // page end address
+    write_command((_height / 8) - 1); // page end address
     
     // send display buffer
-    write_data(_display_buffer, sizeof(_display_buffer));
+    write_data(_display_buffer, _buffer_size);
 }
 
 void SSD1306Display::turn_on() {
@@ -285,11 +318,11 @@ void SSD1306Display::turn_off() {
 }
 
 void SSD1306Display::set_pixel(int16_t x, int16_t y, bool color) {
-    if (x < 0 || x >= DISPLAY_WIDTH || y < 0 || y >= DISPLAY_HEIGHT) {
+    if (x < 0 || x >= _width || y < 0 || y >= _height) {
         return;
     }
-    // each byte in the SSD1306 buffer controls 8 vertical pixels, meaning there are 32 columns and 4 rows of bytes
-    uint16_t index = x + (y / 8) * DISPLAY_WIDTH;
+    // each byte in the SSD1306 buffer controls 8 vertical pixels
+    uint16_t index = x + (y / 8) * _width;
     // creates the bit mask at the index
     uint8_t bit_mask = 1 << (y % 8);
     

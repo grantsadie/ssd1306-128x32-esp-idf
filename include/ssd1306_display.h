@@ -15,8 +15,11 @@ private:
     i2c_master_bus_handle_t _i2c_bus_handle;
     bool _initialized;
     
-    // buffer for the display (128x32 = 4096 bits = 512 bytes)
-    uint8_t _display_buffer[512];
+    // Display dimensions and buffer
+    uint8_t _width;
+    uint8_t _height;
+    uint8_t* _display_buffer;
+    size_t _buffer_size;
     
     // I2C communication methods
     esp_err_t write_command(uint8_t command);
@@ -27,10 +30,12 @@ private:
 
 public:
     static constexpr uint8_t DEFAULT_ADDRESS = 0x3C;
-    static constexpr int DISPLAY_WIDTH = 128;
-    static constexpr int DISPLAY_HEIGHT = 32;
+    static constexpr uint8_t DEFAULT_WIDTH = 128;
+    static constexpr uint8_t DEFAULT_HEIGHT = 32;
     
     explicit SSD1306Display(gpio_num_t sda_pin, gpio_num_t scl_pin, 
+                           uint8_t width = DEFAULT_WIDTH, 
+                           uint8_t height = DEFAULT_HEIGHT,
                            i2c_port_t port = I2C_NUM_0, 
                            uint8_t address = DEFAULT_ADDRESS);
     
@@ -52,4 +57,6 @@ public:
     
     // Utility functions
     bool initialized() const { return _initialized; }
+    uint8_t width() const { return _width; }
+    uint8_t height() const { return _height; }
 };
