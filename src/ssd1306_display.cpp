@@ -157,15 +157,15 @@ SSD1306Display::~SSD1306Display() {
         _display_buffer = nullptr;
     }
     
-    if (initialized() && _owns_bus_handle) {
-        // Only clean up I2C if we own the bus handle
-        if (_i2c_device_handle) {
-            i2c_master_bus_rm_device(_i2c_device_handle);
-        }
-        if (_i2c_bus_handle) {
-            i2c_del_master_bus(_i2c_bus_handle);
-        }
-    }
+    // if (initialized() && _owns_bus_handle) {
+    //     // Only clean up I2C if we own the bus handle
+    //     if (_i2c_device_handle) {
+    //         i2c_master_bus_rm_device(_i2c_device_handle);
+    //     }
+    //     if (_i2c_bus_handle) {
+    //         i2c_del_master_bus(_i2c_bus_handle);
+    //     }
+    // }
 }
 
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
@@ -176,36 +176,36 @@ esp_err_t SSD1306Display::initialize() {
 
     esp_err_t ret = ESP_OK;
 
-    if (_owns_bus_handle) {
-        // Legacy mode: create our own I2C bus
-        ESP_LOGI(TAG, "SDA Pin: %d, SCL Pin: %d", _sda_pin, _scl_pin);
+    // if (_owns_bus_handle) {
+    //     // Legacy mode: create our own I2C bus
+    //     ESP_LOGI(TAG, "SDA Pin: %d, SCL Pin: %d", _sda_pin, _scl_pin);
         
-        // if just woken from deep sleep, rtc pins may be held in reset from rtc_gpio_isolate
-        rtc_gpio_hold_dis(_sda_pin); // disable hold on GPIOs
-        rtc_gpio_hold_dis(_scl_pin);
+    //     // if just woken from deep sleep, rtc pins may be held in reset from rtc_gpio_isolate
+    //     rtc_gpio_hold_dis(_sda_pin); // disable hold on GPIOs
+    //     rtc_gpio_hold_dis(_scl_pin);
 
-        // configure I2C
-        i2c_master_bus_config_t i2c_config = {};
-        i2c_config.sda_io_num = _sda_pin;
-        i2c_config.scl_io_num = _scl_pin;
-        i2c_config.i2c_port = _i2c_port; 
-        i2c_config.glitch_ignore_cnt = 7; // typical value for glitch filtering
-        i2c_config.clk_source = I2C_CLK_SRC_DEFAULT;
-        i2c_config.flags = {
-            .enable_internal_pullup = 1, // enable internal pull-ups. required 
-            .allow_pd = 0 //  before sleep, will backup the I2C register which will be restored
-        };
+    //     // configure I2C
+    //     i2c_master_bus_config_t i2c_config = {};
+    //     i2c_config.sda_io_num = _sda_pin;
+    //     i2c_config.scl_io_num = _scl_pin;
+    //     i2c_config.i2c_port = _i2c_port; 
+    //     i2c_config.glitch_ignore_cnt = 7; // typical value for glitch filtering
+    //     i2c_config.clk_source = I2C_CLK_SRC_DEFAULT;
+    //     i2c_config.flags = {
+    //         .enable_internal_pullup = 1, // enable internal pull-ups. required 
+    //         .allow_pd = 0 //  before sleep, will backup the I2C register which will be restored
+    //     };
 
-        ESP_LOGI(TAG, "Creating I2C master bus...");
-        ret = i2c_new_master_bus(&i2c_config, &_i2c_bus_handle);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(ret));
-            return ret;
-        }
-    } else {
-        ESP_LOGI(TAG, "Using external I2C bus handle");
+    //     ESP_LOGI(TAG, "Creating I2C master bus...");
+    //     ret = i2c_new_master_bus(&i2c_config, &_i2c_bus_handle);
+    //     if (ret != ESP_OK) {
+    //         ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(ret));
+    //         return ret;
+    //     }
+    // } else {
+    ESP_LOGI(TAG, "Using external I2C bus handle");
         // Bus handle already set in constructor
-    }
+    // }
 
     ESP_LOGI(TAG, "Adding I2C device...");
     i2c_device_config_t dev_cfg = {};
@@ -216,9 +216,9 @@ esp_err_t SSD1306Display::initialize() {
     ret = i2c_master_bus_add_device(_i2c_bus_handle, &dev_cfg, &_i2c_device_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
-        if (_owns_bus_handle) {
-            i2c_del_master_bus(_i2c_bus_handle);
-        }
+        // if (_owns_bus_handle) {
+        //     i2c_del_master_bus(_i2c_bus_handle);
+        // }
         return ret;
     }
 
@@ -255,9 +255,9 @@ esp_err_t SSD1306Display::initialize() {
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to send initialization commands: %s", esp_err_to_name(res));
         i2c_master_bus_rm_device(_i2c_device_handle);
-        if (_owns_bus_handle) {
-            i2c_del_master_bus(_i2c_bus_handle);
-        }
+        // if (_owns_bus_handle) {
+        //     i2c_del_master_bus(_i2c_bus_handle);
+        // }
         return res;
     }
 
