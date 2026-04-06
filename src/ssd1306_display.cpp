@@ -2,10 +2,6 @@
 #include "esp_log.h"
 #include "driver/rtc_io.h"
 #include <cstring>
-#include <algorithm>
-#include <memory>
-
-#include "esp_mac.h"
 
 static const char* TAG = "SSD1306";
 
@@ -126,11 +122,29 @@ static const char* TAG = "SSD1306";
     0x3C, 0x00, 0x00, 0x00, 0x00, 0x00 // #255 NBSP
 };
 
+// Legacy constructor - creates its own I2C bus
 SSD1306Display::SSD1306Display(gpio_num_t sda_pin, gpio_num_t scl_pin, 
                                uint8_t width, uint8_t height,
                                i2c_port_t port, uint8_t address)
     : _i2c_port(port), _device_address(address), _sda_pin(sda_pin), 
-      _scl_pin(scl_pin), _initialized(false), _width(width), _height(height) {
+      _scl_pin(scl_pin), _i2c_device_handle(nullptr), _i2c_bus_handle(nullptr), 
+      _i2c_mutex(nullptr), _initialized(false), _owns_bus_handle(true), 
+      _width(width), _height(height), _display_buffer(nullptr), _buffer_size(0) {
+    // Calculate buffer size: width * height / 8 (since each bit represents a pixel)
+    _buffer_size = (width * height) / 8;
+    _display_buffer = new uint8_t[_buffer_size];
+    memset(_display_buffer, 0, _buffer_size);
+}
+
+// New constructor - uses external I2C bus and mutex
+SSD1306Display::SSD1306Display(i2c_master_bus_handle_t bus_handle,
+                               SemaphoreHandle_t i2c_mutex,
+                               uint8_t width, uint8_t height,
+                               uint8_t address)
+    : _i2c_port(I2C_NUM_0), _device_address(address), _sda_pin(GPIO_NUM_NC), 
+      _scl_pin(GPIO_NUM_NC), _i2c_device_handle(nullptr), _i2c_bus_handle(bus_handle), 
+      _i2c_mutex(i2c_mutex), _initialized(false), _owns_bus_handle(false), 
+      _width(width), _height(height), _display_buffer(nullptr), _buffer_size(0) {
     // Calculate buffer size: width * height / 8 (since each bit represents a pixel)
     _buffer_size = (width * height) / 8;
     _display_buffer = new uint8_t[_buffer_size];
@@ -142,40 +156,56 @@ SSD1306Display::~SSD1306Display() {
         delete[] _display_buffer;
         _display_buffer = nullptr;
     }
-    if (initialized()) {
-        // i2c_driver_delete(i2c_port);
-    }
+    
+    // if (initialized() && _owns_bus_handle) {
+    //     // Only clean up I2C if we own the bus handle
+    //     if (_i2c_device_handle) {
+    //         i2c_master_bus_rm_device(_i2c_device_handle);
+    //     }
+    //     if (_i2c_bus_handle) {
+    //         i2c_del_master_bus(_i2c_bus_handle);
+    //     }
+    // }
 }
 
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
 esp_err_t SSD1306Display::initialize() {
     ESP_LOGI(TAG, "Initializing SSD1306 display...");
-    ESP_LOGI(TAG, "SDA Pin: %d, SCL Pin: %d, Address: 0x%02X", _sda_pin, _scl_pin, _device_address);
-    ESP_LOGI(TAG, "Display Size: %dx%d, Buffer Size: %d bytes", _width, _height, _buffer_size);
+    ESP_LOGI(TAG, "Address: 0x%02X, Display Size: %dx%d, Buffer Size: %d bytes", 
+             _device_address, _width, _height, _buffer_size);
 
-    // if just woken from deep sleep, rtc pins may be held in reset from rtc_gpio_isolate
-    rtc_gpio_hold_dis(_sda_pin); // disable hold on GPIOs
-    rtc_gpio_hold_dis(_scl_pin);
+    esp_err_t ret = ESP_OK;
 
-    // configure I2C
-    i2c_master_bus_config_t i2c_config = {};
-    i2c_config.sda_io_num = _sda_pin;
-    i2c_config.scl_io_num = _scl_pin;
-    i2c_config.i2c_port = _i2c_port; 
-    i2c_config.glitch_ignore_cnt = 7; // typical value for glitch filtering
-    i2c_config.clk_source = I2C_CLK_SRC_DEFAULT;
-    i2c_config.flags = {
-        .enable_internal_pullup = 1, // enable internal pull-ups. required 
-        .allow_pd = 0 //  before sleep, will backup the I2C register which will be restored
-    };
+    // if (_owns_bus_handle) {
+    //     // Legacy mode: create our own I2C bus
+    //     ESP_LOGI(TAG, "SDA Pin: %d, SCL Pin: %d", _sda_pin, _scl_pin);
+        
+    //     // if just woken from deep sleep, rtc pins may be held in reset from rtc_gpio_isolate
+    //     rtc_gpio_hold_dis(_sda_pin); // disable hold on GPIOs
+    //     rtc_gpio_hold_dis(_scl_pin);
 
-    ESP_LOGI(TAG, "Creating I2C master bus...");
-    i2c_master_bus_handle_t i2c_handle;
-    esp_err_t ret = i2c_new_master_bus(&i2c_config, &i2c_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(ret));
-        return ret;
-    }
+    //     // configure I2C
+    //     i2c_master_bus_config_t i2c_config = {};
+    //     i2c_config.sda_io_num = _sda_pin;
+    //     i2c_config.scl_io_num = _scl_pin;
+    //     i2c_config.i2c_port = _i2c_port; 
+    //     i2c_config.glitch_ignore_cnt = 7; // typical value for glitch filtering
+    //     i2c_config.clk_source = I2C_CLK_SRC_DEFAULT;
+    //     i2c_config.flags = {
+    //         .enable_internal_pullup = 1, // enable internal pull-ups. required 
+    //         .allow_pd = 0 //  before sleep, will backup the I2C register which will be restored
+    //     };
+
+    //     ESP_LOGI(TAG, "Creating I2C master bus...");
+    //     ret = i2c_new_master_bus(&i2c_config, &_i2c_bus_handle);
+    //     if (ret != ESP_OK) {
+    //         ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(ret));
+    //         return ret;
+    //     }
+    // } else {
+    ESP_LOGI(TAG, "Using external I2C bus handle");
+        // Bus handle already set in constructor
+    // }
 
     ESP_LOGI(TAG, "Adding I2C device...");
     i2c_device_config_t dev_cfg = {};
@@ -183,17 +213,14 @@ esp_err_t SSD1306Display::initialize() {
     dev_cfg.device_address = _device_address;
     dev_cfg.scl_speed_hz = 400000;
 
-    i2c_master_dev_handle_t dev_handle;
-    ret = i2c_master_bus_add_device(i2c_handle, &dev_cfg, &dev_handle);
+    ret = i2c_master_bus_add_device(_i2c_bus_handle, &dev_cfg, &_i2c_device_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
-        i2c_del_master_bus(i2c_handle);
+        // if (_owns_bus_handle) {
+        //     i2c_del_master_bus(_i2c_bus_handle);
+        // }
         return ret;
     }
-
-    // store the device handle for later use
-    _i2c_bus_handle = i2c_handle;
-    _i2c_device_handle = dev_handle;
 
     ESP_LOGI(TAG, "Sending SSD1306 initialization commands...");
     // init SSD1306 display. Parameters adjusted based on display size
@@ -224,11 +251,13 @@ esp_err_t SSD1306Display::initialize() {
         0xAF
     };
 
-    esp_err_t res = i2c_master_transmit(dev_handle, init_commands, sizeof(init_commands), -1);
+    esp_err_t res = i2c_master_transmit(_i2c_device_handle, init_commands, sizeof(init_commands), -1);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to send initialization commands: %s", esp_err_to_name(res));
-        i2c_master_bus_rm_device(dev_handle);
-        i2c_del_master_bus(i2c_handle);
+        i2c_master_bus_rm_device(_i2c_device_handle);
+        // if (_owns_bus_handle) {
+        //     i2c_del_master_bus(_i2c_bus_handle);
+        // }
         return res;
     }
 
@@ -243,43 +272,46 @@ esp_err_t SSD1306Display::initialize() {
 
 esp_err_t SSD1306Display::write_command(uint8_t command) {
     uint8_t data[] = {0x00, command}; // 0x00 for command mode
+    
+    if (_i2c_mutex != nullptr) {
+        if (xSemaphoreTake(_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+            ESP_LOGW(TAG, "Failed to acquire I2C mutex for command");
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+    
     esp_err_t ret = i2c_master_transmit(_i2c_device_handle, data, sizeof(data), -1);
     
-    // i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    // i2c_master_start(cmd);
-    // i2c_master_write_byte(cmd, (device_address << 1) | I2C_MASTER_WRITE, true);
-    // i2c_master_write(cmd, data, sizeof(data), true);
-    // i2c_master_stop(cmd);
+    if (_i2c_mutex != nullptr) {
+        xSemaphoreGive(_i2c_mutex);
+    }
     
-    // esp_err_t ret = i2c_master_cmd_begin(i2c_port, cmd, pdMS_TO_TICKS(100));
-    // i2c_cmd_link_delete(cmd);
     return ret;
 }
 
 esp_err_t SSD1306Display::write_data(const uint8_t* data, size_t len) {
     uint8_t control_byte = 0x40; // Data mode
-        // Create buffer with control byte + data
+    // Create buffer with control byte + data
     uint8_t* buffer = new uint8_t[len + 1];
     buffer[0] = control_byte;
     memcpy(buffer + 1, data, len);
     
+    if (_i2c_mutex != nullptr) {
+        if (xSemaphoreTake(_i2c_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+            ESP_LOGW(TAG, "Failed to acquire I2C mutex for data");
+            delete[] buffer;
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+    
     esp_err_t ret = i2c_master_transmit(_i2c_device_handle, buffer, len + 1, -1);
+    
+    if (_i2c_mutex != nullptr) {
+        xSemaphoreGive(_i2c_mutex);
+    }
     
     delete[] buffer;
     return ret;
-    // esp_err_t ret = i2c_master_transmit(i2c_device_handle, data, sizeof(data), -1);
-    
-    // i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    // i2c_master_start(cmd);
-    // i2c_master_write_byte(cmd, (device_address << 1) | I2C_MASTER_WRITE, true);
-    // i2c_master_write_byte(cmd, control_byte, true);
-    // i2c_master_write(cmd, data, len, true);
-    // i2c_master_stop(cmd);
-    
-    // esp_err_t ret = i2c_master_cmd_begin(i2c_port, cmd, pdMS_TO_TICKS(100));
-    // i2c_cmd_link_delete(cmd);
-    
-    // return ret;
 }
 
 void SSD1306Display::clear() {

@@ -2,6 +2,8 @@
 
 #include "driver/i2c_master.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <cstdint>
 #include <string>
 
@@ -13,7 +15,9 @@ private:
     gpio_num_t _scl_pin;
     i2c_master_dev_handle_t _i2c_device_handle;
     i2c_master_bus_handle_t _i2c_bus_handle;
+    SemaphoreHandle_t _i2c_mutex;
     bool _initialized;
+    bool _owns_bus_handle;  // Track if we own the bus handle
     
     // Display dimensions and buffer
     uint8_t _width;
@@ -33,10 +37,18 @@ public:
     static constexpr uint8_t DEFAULT_WIDTH = 128;
     static constexpr uint8_t DEFAULT_HEIGHT = 32;
     
+    // Constructor for creating own I2C bus (legacy)
     explicit SSD1306Display(gpio_num_t sda_pin, gpio_num_t scl_pin, 
                            uint8_t width = DEFAULT_WIDTH, 
                            uint8_t height = DEFAULT_HEIGHT,
                            i2c_port_t port = I2C_NUM_0, 
+                           uint8_t address = DEFAULT_ADDRESS);
+    
+    // Constructor for using external I2C bus and mutex (recommended)
+    explicit SSD1306Display(i2c_master_bus_handle_t bus_handle,
+                           SemaphoreHandle_t i2c_mutex,
+                           uint8_t width = DEFAULT_WIDTH, 
+                           uint8_t height = DEFAULT_HEIGHT,
                            uint8_t address = DEFAULT_ADDRESS);
     
     ~SSD1306Display();
