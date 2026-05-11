@@ -54,6 +54,9 @@ public:
     ~SSD1306Display();
     
     esp_err_t initialize();
+
+    // Flip display orientation (upside down)
+    void set_flipped(bool flipped);
     
     void clear();
     void display();

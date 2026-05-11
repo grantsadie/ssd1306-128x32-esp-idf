@@ -455,3 +455,17 @@ void SSD1306Display::fill_rectangle(int16_t x, int16_t y, int16_t width, int16_t
         }
     }
 }
+
+void SSD1306Display::set_flipped(bool flipped) {
+    if (!initialized()) return;
+    // SSD1306 flip: segment remap (0xA0/0xA1), COM scan dir (0xC0/0xC8)
+    // Normal: 0xA1, 0xC8 (default in init)
+    // Flipped: 0xA0, 0xC0
+    if (flipped) {
+        write_command(0xA0); // Set segment remap (flipped)
+        write_command(0xC0); // Set COM output scan direction (flipped)
+    } else {
+        write_command(0xA1); // Set segment remap (normal)
+        write_command(0xC8); // Set COM output scan direction (normal)
+    }
+}
